@@ -1,226 +1,128 @@
-from flask import request, jsonify
-from flask_restful import Resource
+from flask import Flask, render_template, request, redirect, url_for, session, jsonify
+from flask_restful import Api
+from api import user_api, ReportAPI, AnalyticsAPI
+import requests
 import sqlite3
-import matplotlib.pyplot as plt
-import numpy as np
-import os
-from fpdf import FPDF
-import pandas as pd
-import seaborn as sns
-def connect():
+import math
+
+app = Flask(__name__)
+app.secret_key = 'shazam'
+
+api = Api(app)
+api.add_resource(user_api, '/api/user')
+api.add_resource(ReportAPI, '/api/report/<int:mine_id>')
+api.add_resource(AnalyticsAPI, '/api/analytics/<string:mine_id>')
+
+def get_db_connection():
     conn = sqlite3.connect('carbon')
+    conn.row_factory = sqlite3.Row
+    conn.create_function("FLOOR", 1, lambda x: math.floor(x) if x is not None else None)
     return conn
 
-static_folder = 'static'
+@app.route('/')
+def index():
+    return render_template('login.html')
 
-class user_api(Resource):
-    def get(self):
-        data = request.json
-        user = data.get('username')
-        passw = data.get('password')
-        
-        conn = connect()
-        cursor = conn.cursor()
-        
-        fetch = cursor.execute('SELECT * FROM users WHERE mine_id=? AND password=?', (user, passw)).fetchone()
-        conn.close()
-        
-        if fetch:
-            return {'message': 'Login Successful'}, 200
+@app.route('/login', methods=['POST', 'GET'])
+def login():
+    if request.method == 'POST':
+        login = {
+            'username': request.form['username'],
+            'password': request.form['password'],    
+        }
+        res = requests.get(request.url_root + 'api/user', json=login)
+        if res.status_code == 200:
+            session["username"] = login['username']
+            return redirect(url_for('report'))
         else:
-            return {'message': 'Invalid Credentials'}, 401
+            return render_template('login.html', message="Wrong Username Or Password")
+    return render_template('login.html')
 
-    def post(self):
-        data = request.json
-        user = data.get('username')
-        passw = data.get('password')
-        conn = connect()
-        cursor = conn.cursor()
-        fetch = cursor.execute('SELECT * FROM users WHERE mine_id=?', (user,)).fetchall()
-        if fetch:
-            conn.close()
-            return {'message': 'Username already registered'}, 400
+@app.route('/register', methods=['POST', 'GET'])
+def register():
+    if request.method == 'POST':
+        register = {
+            'username': request.form['username'],
+            'password': request.form['password'],
+        }
+        res = requests.post(request.url_root + 'api/user', json=register)
+        if res.status_code == 200:
+            return redirect(url_for('login'))
         else:
-            cursor.execute('INSERT INTO users (mine_id, password) VALUES (?, ?)', (user, passw))
-            conn.commit()
-            conn.close()
-            return {'message': 'Registration successful'}, 200
+            return render_template('registration.html', message="Username already registered")
+    return render_template('registration.html')
 
-class ReportAPI(Resource):
-    def post(self, mine_id):
+@app.route('/report', methods=['POST', 'GET'])
+def report():
+    if request.method == 'POST':
         try:
-            data = request.json
-            conn = sqlite3.connect('carbon')  # Adjust to your database connection
-            cursor = conn.cursor()
-            x=mine_id
-            print(x)
-            cursor.execute('''INSERT INTO quarterly_reports (
-                mine_id, quarter, "year", excavation_emission, transportation_emission, equipment_emission, 
-                renewable_energy_usage, afforestation_needed, carbon_credits_earned, electricity_consumption, 
-                energy_source_breakdown, renewable_energy_share, diesel_consumption, gasoline_consumption, 
-                natural_gas_consumption, other_fuels, generator_usage, equipment_list, equipment_fuel_consumption, 
-                equipment_operating_hours, equipment_power_rating, fuel_type, maintenance_schedule, volume_extracted, 
-                blasting_details, processing_energy_consumption, waste_volume, water_consumption, water_source, 
-                water_treatment, other_resources, methane_capture, methane_volume, methane_efficiency, dust_suppression, 
-                air_quality_data, ventilation_energy, airflow_rate, waste_types, waste_disposal_methods, emissions_from_waste, 
-                carbon_sinks_area, vegetation_type, carbon_sequestration_existing, afforestation_plans, carbon_sequestration_planned, 
-                qualifying_projects, current_carbon_credit_price, renewable_energy_projects, energy_generated_renewables, 
-                energy_efficiency_measures, recycling_programs, recycled_material_amount
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
-            (int(x), 
-             data.get('quarter'), 
-             data.get('year'), 
-             data.get('excavation_emission'), 
-             data.get('transportation_emission'), 
-             data.get('equipment_emission'), 
-             data.get('renewable_energy_usage'), 
-             data.get('afforestation_needed'), 
-             data.get('carbon_credits_earned'), 
-             data.get('electricity_consumption'), 
-             data.get('energy_source_breakdown'), 
-             data.get('renewable_energy_share'), 
-             data.get('diesel_consumption'), 
-             data.get('gasoline_consumption'), 
-             data.get('natural_gas_consumption'), 
-             data.get('other_fuels'), 
-             data.get('generator_usage'), 
-             data.get('equipment_list'), 
-             data.get('equipment_fuel_consumption'), 
-             data.get('equipment_operating_hours'), 
-             data.get('equipment_power_rating'), 
-             data.get('fuel_type'), 
-             data.get('maintenance_schedule'), 
-             data.get('volume_extracted'), 
-             data.get('blasting_details'), 
-             data.get('processing_energy_consumption'), 
-             data.get('waste_volume'), 
-             data.get('water_consumption'), 
-             data.get('water_source'), 
-             data.get('water_treatment'), 
-             data.get('other_resources'), 
-             data.get('methane_capture'), 
-             data.get('methane_volume'), 
-             data.get('methane_efficiency'), 
-             data.get('dust_suppression'), 
-             data.get('air_quality_data'), 
-             data.get('ventilation_energy'), 
-             data.get('airflow_rate'), 
-             data.get('waste_types'), 
-             data.get('waste_disposal_methods'), 
-             data.get('emissions_from_waste'), 
-             data.get('carbon_sinks_area'), 
-             data.get('vegetation_type'), 
-             data.get('carbon_sequestration_existing'), 
-             data.get('afforestation_plans'), 
-             data.get('carbon_sequestration_planned'), 
-             data.get('qualifying_projects'), 
-             data.get('current_carbon_credit_price'), 
-             data.get('renewable_energy_projects'), 
-             data.get('energy_generated_renewables'), 
-             data.get('energy_efficiency_measures'), 
-             data.get('recycling_programs'), 
-             data.get('recycled_material_amount')))
-             
-            conn.commit()
-            conn.close()
-            return 201
-        except Exception as e:
-            print(f"Error occurred: {e}")
-            return 400
+            data = {
+        "quarter": request.form.get("quarter"),
+        "year": request.form.get("year"),
+        "excavation_emission": request.form.get("excavation_emission"),
+        "transportation_emission": request.form.get("transportation_emission"),
+        "equipment_emission": request.form.get("equipment_emission"),
+        "renewable_energy_usage": request.form.get("renewable_energy_usage"),
+        "afforestation_needed": request.form.get("afforestation_needed"),
+        "carbon_credits_earned": request.form.get("carbon_credits_earned"),
+        "electricity_consumption": request.form.get("electricity_consumption"),
+        "energy_source_breakdown": request.form.get("energy_source_breakdown"),
+        "renewable_energy_share": request.form.get("renewable_energy_share"),
+        "diesel_consumption": request.form.get("diesel_consumption"),
+        "gasoline_consumption": request.form.get("gasoline_consumption"),
+        "natural_gas_consumption": request.form.get("natural_gas_consumption"),
+        "other_fuels": request.form.get("other_fuels"),
+        "generator_usage": request.form.get("generator_usage"),
+        "equipment_list": request.form.get("equipment_list"),
+        "equipment_fuel_consumption": request.form.get("equipment_fuel_consumption"),
+        "equipment_operating_hours": request.form.get("equipment_operating_hours"),
+        "equipment_power_rating": request.form.get("equipment_power_rating"),
+        "fuel_type": request.form.get("fuel_type"),
+        "maintenance_schedule": request.form.get("maintenance_schedule"),
+        "volume_extracted": request.form.get("volume_extracted"),
+        "blasting_details": request.form.get("blasting_details"),
+        "processing_energy_consumption": request.form.get("processing_energy_consumption"),
+        "waste_volume": request.form.get("waste_volume"),
+        "water_consumption": request.form.get("water_consumption"),
+        "water_source": request.form.get("water_source"),
+        "water_treatment": request.form.get("water_treatment"),
+        "other_resources": request.form.get("other_resources"),
+        "methane_capture": request.form.get("methane_capture"),
+        "methane_volume": request.form.get("methane_volume"),
+        "methane_efficiency": request.form.get("methane_efficiency"),
+        "dust_suppression": request.form.get("dust_suppression"),
+        "air_quality_data": request.form.get("air_quality_data"),
+        "ventilation_energy": request.form.get("ventilation_energy"),
+        "airflow_rate": request.form.get("airflow_rate"),
+        "waste_types": request.form.get("waste_types"),
+        "waste_disposal_methods": request.form.get("waste_disposal_methods"),
+        "emissions_from_waste": request.form.get("emissions_from_waste"),
+        "carbon_sinks_area": request.form.get("carbon_sinks_area"),
+        "vegetation_type": request.form.get("vegetation_type"),
+        "carbon_sequestration_existing": request.form.get("carbon_sequestration_existing"),
+        "afforestation_plans": request.form.get("afforestation_plans"),
+        "carbon_sequestration_planned": request.form.get("carbon_sequestration_planned"),
+        "qualifying_projects": request.form.get("qualifying_projects"),
+        "current_carbon_credit_price": request.form.get("current_carbon_credit_price"),
+        "renewable_energy_projects": request.form.get("renewable_energy_projects"),
+        "energy_generated_renewables": request.form.get("energy_generated_renewables"),
+        "energy_efficiency_measures": request.form.get("energy_efficiency_measures"),
+        "recycling_programs": request.form.get("recycling_programs"),
+        "recycled_material_amount": request.form.get("recycled_material_amount")
+    }
+            jsonify(data)
+            response = requests.post(request.url_root + 'api/report/' + session["username"], json=data)
+            return redirect(url_for('analysis'))
+        except requests.RequestException as e:
+            return render_template('index.html', message=f"An error occurred: {e}")
+    else:
+        return render_template('index.html')
+    
+@app.route('/analysis', methods=['POST','GET'])
+def analysis():
+    mine_id = session.get('username')
+    response = requests.post(request.url_root + 'api/analytics/' + session["username"])
+    return redirect(url_for('static', filename='data_analysis_report.pdf'))
 
-class AnalyticsAPI(Resource):
-    def post(self, mine_id):
-        conn = connect()
-        cursor = conn.cursor()
-
-        cursor.execute('''SELECT mine_id, quarter, "year", excavation_emission, transportation_emission, equipment_emission, 
-                        renewable_energy_usage, carbon_credits_earned, electricity_consumption, energy_source_breakdown, 
-                        volume_extracted
-                        FROM quarterly_reports 
-                        WHERE mine_id = ?''', (mine_id,))
-        data = cursor.fetchall()
-        conn.close()
-
-        columns = ['mine_id', 'quarter', 'year', 'excavation_emission', 'transportation_emission', 
-                   'equipment_emission', 'renewable_energy_usage', 'carbon_credits_earned', 
-                   'electricity_consumption', 'energy_source_breakdown', 'volume_extracted']
-        df = pd.DataFrame(data, columns=columns)
-
-        if df.empty:
-            return jsonify({'message': 'No data found for this mine ID'}), 404
-        
-        df['quarter_year'] = df['quarter'].astype(str) + '-' + df['year'].astype(str)
-
-        plt.figure(figsize=(10, 6))
-        plt.plot(df['quarter_year'], df['excavation_emission'], label='Excavation Emission')
-        plt.plot(df['quarter_year'], df['transportation_emission'], label='Transportation Emission')
-        plt.xlabel('Quarter-Year')
-        plt.ylabel('Emissions')
-        plt.title('Emissions Over Time')
-        plt.legend()
-        emissions_graph_path = os.path.join(static_folder, 'emissions_graph.png')
-        plt.savefig(emissions_graph_path)
-        plt.close()
-
-        energy_sources = df['energy_source_breakdown'].str.split(',', expand=True).stack().value_counts()
-        plt.figure(figsize=(7, 7))
-        plt.pie(energy_sources, labels=energy_sources.index, autopct='%1.1f%%', startangle=140)
-        plt.title('Energy Source Breakdown')
-        pie_chart_path = os.path.join(static_folder, 'energy_source_pie_chart.png')
-        plt.savefig(pie_chart_path)
-        plt.close()
-
-        plt.figure(figsize=(10, 6))
-        plt.bar(df['quarter_year'], df['renewable_energy_usage'], color='green')
-        plt.xlabel('Quarter-Year')
-        plt.ylabel('Renewable Energy Usage (kWh)')
-        plt.title('Renewable Energy Usage Over Time')
-        renewable_energy_path = os.path.join(static_folder, 'renewable_energy_bar_chart.png')
-        plt.savefig(renewable_energy_path)
-        plt.close()
-
-        emission_types = ['excavation_emission', 'transportation_emission', 'equipment_emission']
-        df['total_emissions'] = df[emission_types].sum(axis=1)
-        df.set_index('quarter_year')[emission_types].plot(kind='bar', stacked=True)
-        plt.xlabel('Quarter-Year')
-        plt.ylabel('Emissions')
-        plt.title('Total Emissions by Category Over Time')
-        plt.tight_layout()
-        emissions_breakdown_path = os.path.join(static_folder, 'emissions_breakdown_stacked_bar.png')
-        plt.savefig(emissions_breakdown_path)
-        plt.close()
-
-        plt.figure(figsize=(10, 8))
-        corr_matrix = df[['excavation_emission', 'transportation_emission', 'equipment_emission', 
-                          'carbon_credits_earned', 'electricity_consumption', 'renewable_energy_usage']].corr()
-        sns.heatmap(corr_matrix, annot=True, cmap='coolwarm', linewidths=0.5)
-        plt.title('Correlation Between Key Metrics')
-        heatmap_path = os.path.join(static_folder, 'correlation_heatmap.png')
-        plt.savefig(heatmap_path)
-        plt.close()
-
-        total_extraction = df['volume_extracted'].sum()
-        average_emission = df[['excavation_emission', 'transportation_emission']].mean().mean()
-
-        pdf = FPDF()
-        pdf.add_page()
-        pdf.set_font("Arial", size=12)
-        pdf.cell(200, 10, txt="Data Analysis Report", ln=True, align='C')
-        pdf.cell(200, 10, txt=f"Total Volume Extracted: {total_extraction}", ln=True)
-        pdf.cell(200, 10, txt=f"Average Emission: {average_emission:.2f}", ln=True)
-
-        # Add graphs to the PDF
-        pdf.image(emissions_graph_path, x=10, y=40, w=180)
-        pdf.add_page()  # New page for each graph
-        pdf.image(pie_chart_path, x=10, y=10, w=180)
-        pdf.add_page()
-        pdf.image(renewable_energy_path, x=10, y=10, w=180)
-        pdf.add_page()
-        pdf.image(emissions_breakdown_path, x=10, y=10, w=180)
-        pdf.add_page()
-        pdf.image(heatmap_path, x=10, y=10, w=180)
-
-        pdf_output_path = os.path.join(static_folder, "data_analysis_report.pdf")
-        pdf.output(pdf_output_path)
-
-        return jsonify({'message': 'Analysis complete, report generated.', 'report_url': f'/{static_folder}/data_analysis_report.pdf'}), 200
+if __name__ == '__main__':
+    app.run(debug=True)
